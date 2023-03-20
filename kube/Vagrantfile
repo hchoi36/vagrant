@@ -1,0 +1,65 @@
+$setup_minikube = <<SCRIPT
+
+apt-get update && apt-get upgrade -y
+apt install curl apt-transport-https vim git wget gnupg2 software-properties-common apt-transport-https ca-certificates uidmap -y
+swapoff -a
+modprobe overlay
+modprobe br_netfilter
+cat << EOF | tee /etc/sysctl.d/kubernetes.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" >  /etc/apt/sources.list.d/kubernetes.list
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+apt-get update
+apt-get install -y kubeadm=1.24.1-00 kubelet=1.24.1-00 kubectl=1.24.1-00
+apt-mark hold kubelet kubeadm kubectl
+wget https://docs.projectcalico.org/manifests/calico.yaml
+
+#containerd.io install 
+sudo apt-get update
+sudo apt-get install \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+apt-get install containerd.io
+
+#NOTES
+# make sure to add your ip address to /etc/hosts example: 0.0.0.0 cp(any name) to both worker and control plane
+# run this cmd to start kubeadm init --config=kubeadm-config.yaml --upload-certs | tee kubeadm-init.out
+# make sure to delete /etc/containerd/config.toml to fix runtime error
+SCRIPT
+
+Vagrant.configure("2") do |config|
+  config.vm.define "CP" do |subconfig|
+    subconfig.vm.box = "ubuntu/focal64"
+        subconfig.vm.hostname = "CP"
+#    subconfig.vm.network "public_network"
+        subconfig.vm.network "private_network", ip: "192.168.2.100"
+        subconfig.vm.provision "shell", inline:$setup_minikube
+
+        subconfig.vm.provider "virtualbox" do |vb|
+                vb.memory = "2048"
+                vb.cpus = "2"
+        end
+
+  end
+
+  config.vm.define "Worker" do |subconfig|
+    subconfig.vm.box = "ubuntu/focal64"
+        subconfig.vm.hostname = "Worker"
+        subconfig.vm.network "private_network", ip: "192.168.2.110"
+        subconfig.vm.provision "shell", inline:$setup_minikube
+        subconfig.vm.provider "virtualbox" do |vb|
+                vb.memory = "2048"
+        end
+  end
+end
